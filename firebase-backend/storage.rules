@@ -1,0 +1,52 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isTeacher() {
+      return isSignedIn() && request.auth.token.role == 'teacher';
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    // Course videos: only verified teachers can upload under their own teacherId prefix (max 500 MB)
+    match /courses/{teacherId}/{courseId}/video/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isTeacher() &&
+        request.auth.uid == teacherId &&
+        request.resource.size < 500 * 1024 * 1024 &&
+        request.resource.contentType.matches('video/.*');
+      allow delete: if isAdmin() || (isTeacher() && request.auth.uid == teacherId);
+    }
+
+    // Course thumbnails: only verified teachers can upload images under their own prefix (max 10 MB)
+    match /courses/{teacherId}/{courseId}/thumbnail/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isTeacher() &&
+        request.auth.uid == teacherId &&
+        request.resource.size < 10 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+      allow delete: if isAdmin() || (isTeacher() && request.auth.uid == teacherId);
+    }
+
+    // User profile avatars: user can only upload/update their own avatar (max 5 MB)
+    match /avatars/{uid}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() &&
+        request.auth.uid == uid &&
+        request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+    }
+
+    // Default deny everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

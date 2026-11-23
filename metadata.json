@@ -1,0 +1,6 @@
+{
+  "name": "MB Seekho",
+  "description": "Online learning Android application with student and teacher portals, private access-code activation, video courses, payment verification, and owner admin panel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

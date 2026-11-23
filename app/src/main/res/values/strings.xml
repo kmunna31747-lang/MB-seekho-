@@ -1,0 +1,25 @@
+<resources>
+    <string name="app_name">MB Seekho</string>
+    <string name="app_tagline">Learn Anything • Grow Every Day</string>
+    <string name="role_student">STUDENT</string>
+    <string name="role_teacher">TEACHER</string>
+    <string name="student_login_heading">Student Login</string>
+    <string name="teacher_login_heading">Teacher Login</string>
+    <string name="access_code_label">Access Code</string>
+    <string name="continue_button">Continue</string>
+    <string name="error_invalid_code">Invalid access code. Please check your code or contact the MB Seekho owner.</string>
+    <string name="error_already_used_code">This access code has already been used and cannot be redeemed again.</string>
+    <string name="error_revoked_code">This access code has been revoked by the administrator.</string>
+    <string name="error_wrong_portal">This access code cannot be used on this login screen.</string>
+    <string name="error_account_disabled">This account has been disabled by the administrator.</string>
+    <string name="error_rate_limited">Too many failed attempts. Please wait a moment and try again.</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_new">New</string>
+    <string name="nav_library">Library</string>
+    <string name="nav_profile">Profile</string>
+    <string name="nav_videos">Videos</string>
+    <string name="nav_new_video">New Video</string>
+    <string name="nav_upload">Upload</string>
+    <string name="owner_console_label">Owner Console</string>
+    <string name="logout_button">Logout</string>
+</resources>

@@ -1,0 +1,175 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    function isTeacher() {
+      return isSignedIn() && request.auth.token.role == 'teacher';
+    }
+
+    function isStudent() {
+      return isSignedIn() && request.auth.token.role == 'student';
+    }
+
+    function isActiveUser() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // -------------------------------------------------------------------
+    // 1. PRIVATE ACCESS CODES — strictly owner admin only (Cloud Functions
+    //    using Admin SDK bypass rules during atomic code redemption).
+    // -------------------------------------------------------------------
+    match /accessCodes/{codeId} {
+      allow read: if isAdmin();
+      allow write: if false; // Mutated exclusively via trusted Cloud Functions & Admin SDK
+    }
+
+    // -------------------------------------------------------------------
+    // 2. USERS — users can read/update only their own non-privileged profile
+    //    fields; role, codeId, active, and createdAt are immutable by clients.
+    // -------------------------------------------------------------------
+    match /users/{uid} {
+      allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if false; // Created strictly by Cloud Function upon valid code redemption
+
+      allow update: if isSignedIn() && request.auth.uid == uid &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.codeId == resource.data.codeId &&
+        request.resource.data.active == resource.data.active &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 2 &&
+        request.resource.data.name.size() <= 60 &&
+        (!('photoUrl' in request.resource.data) ||
+          request.resource.data.photoUrl == null ||
+          (request.resource.data.photoUrl is string && request.resource.data.photoUrl.size() <= 1024)) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'photoUrl']);
+
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------
+    // 3. COURSES — published courses readable by authenticated active users;
+    //    only verified active teachers can create/edit/delete their OWN courses;
+    //    owner admin can moderate/delete any inappropriate course.
+    // -------------------------------------------------------------------
+    function isValidCourse(data) {
+      return data.courseId is string && isValidId(data.courseId) &&
+        data.title is string && data.title.size() >= 3 && data.title.size() <= 120 &&
+        data.description is string && data.description.size() >= 5 && data.description.size() <= 1000 &&
+        data.category is string && data.category.size() >= 2 && data.category.size() <= 50 &&
+        data.videoUrl is string && data.videoUrl.size() >= 10 && data.videoUrl.size() <= 2048 &&
+        (!('thumbnailUrl' in data) || data.thumbnailUrl == null ||
+          (data.thumbnailUrl is string && data.thumbnailUrl.size() <= 2048)) &&
+        data.teacherId is string &&
+        data.teacherName is string && data.teacherName.size() >= 2 && data.teacherName.size() <= 60 &&
+        data.published is bool &&
+        data.totalViews is int && data.totalViews >= 0 &&
+        data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    match /courses/{courseId} {
+      allow get: if isValidId(courseId) && (
+        isAdmin() ||
+        (isActiveUser() && resource.data.published == true) ||
+        (isTeacher() && isActiveUser() && resource.data.teacherId == request.auth.uid)
+      );
+
+      allow list: if isAdmin() ||
+        (isActiveUser() && resource.data.published == true) ||
+        (isTeacher() && isActiveUser() && resource.data.teacherId == request.auth.uid);
+
+      allow create: if isValidId(courseId) && isTeacher() && isActiveUser() &&
+        isValidCourse(request.resource.data) &&
+        request.resource.data.courseId == courseId &&
+        request.resource.data.teacherId == request.auth.uid &&
+        request.resource.data.totalViews == 0 &&
+        request.resource.data.keys().hasAll([
+          'courseId', 'title', 'description', 'category', 'videoUrl',
+          'teacherId', 'teacherName', 'createdAt', 'published', 'totalViews'
+        ]) &&
+        request.resource.data.keys().hasOnly([
+          'courseId', 'title', 'description', 'category', 'thumbnailUrl', 'videoUrl',
+          'teacherId', 'teacherName', 'createdAt', 'published', 'totalViews'
+        ]);
+
+      allow update: if isValidId(courseId) && isTeacher() && isActiveUser() &&
+        resource.data.teacherId == request.auth.uid &&
+        isValidCourse(request.resource.data) &&
+        request.resource.data.courseId == resource.data.courseId &&
+        request.resource.data.teacherId == resource.data.teacherId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.totalViews == resource.data.totalViews &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['title', 'description', 'category', 'thumbnailUrl', 'published']);
+
+      allow delete: if isValidId(courseId) && (
+        isAdmin() ||
+        (isTeacher() && isActiveUser() && resource.data.teacherId == request.auth.uid)
+      );
+    }
+
+    // -------------------------------------------------------------------
+    // 4. PAYMENTS — strictly private to Owner Admin
+    // -------------------------------------------------------------------
+    match /payments/{paymentId} {
+      allow read: if isAdmin();
+      allow write: if false; // Mutated via trusted Admin Cloud Functions only
+    }
+
+    // -------------------------------------------------------------------
+    // 5. SAVED COURSES — scoped per student UID
+    // -------------------------------------------------------------------
+    match /savedCourses/{docId} {
+      allow get, list: if isStudent() && isActiveUser() && resource.data.uid == request.auth.uid;
+      allow create: if isStudent() && isActiveUser() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.courseId is string && isValidId(request.resource.data.courseId) &&
+        request.resource.data.savedAt is timestamp && request.resource.data.savedAt <= request.time &&
+        request.resource.data.keys().hasOnly(['uid', 'courseId', 'savedAt']);
+      allow delete: if isStudent() && isActiveUser() && resource.data.uid == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------
+    // 6. COURSE PROGRESS — scoped per student UID
+    // -------------------------------------------------------------------
+    match /courseProgress/{docId} {
+      allow get, list: if isStudent() && isActiveUser() && resource.data.uid == request.auth.uid;
+      allow create, update: if isStudent() && isActiveUser() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.courseId is string && isValidId(request.resource.data.courseId) &&
+        request.resource.data.watchedPositionMs is int && request.resource.data.watchedPositionMs >= 0 &&
+        request.resource.data.durationMs is int && request.resource.data.durationMs >= 0 &&
+        request.resource.data.progressPercent is int &&
+        request.resource.data.progressPercent >= 0 && request.resource.data.progressPercent <= 100 &&
+        request.resource.data.completed is bool &&
+        request.resource.data.lastWatchedAt is timestamp && request.resource.data.lastWatchedAt <= request.time &&
+        request.resource.data.keys().hasOnly([
+          'uid', 'courseId', 'watchedPositionMs', 'durationMs',
+          'progressPercent', 'completed', 'lastWatchedAt'
+        ]);
+      allow delete: if false;
+    }
+  }
+}

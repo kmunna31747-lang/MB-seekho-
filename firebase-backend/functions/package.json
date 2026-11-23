@@ -1,0 +1,12 @@
+{
+  "name": "mb-seekho-functions",
+  "description": "MB Seekho Firebase Cloud Functions for secure access code validation, atomic redemption, rate limiting, and owner admin operations.",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.1.0"
+  }
+}
