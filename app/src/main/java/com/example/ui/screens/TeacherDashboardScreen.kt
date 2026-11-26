@@ -1,13 +1,19 @@
 package com.example.ui.screens
 
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +32,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Person
@@ -36,23 +43,31 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoGraph
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.MonetizationOn
 import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.OndemandVideo
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.StayCurrentPortrait
+import androidx.compose.material.icons.rounded.VideoFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -68,6 +83,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -78,6 +94,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -85,18 +103,35 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.local.CourseEntity
+import com.example.data.local.SelectedVideoInfo
 import com.example.data.local.UserEntity
 import com.example.data.model.CourseCategories
+import com.example.data.model.VideoType
+import com.example.data.repository.TeacherStudioStats
 import com.example.ui.UploadUiState
-import com.example.ui.components.CourseThumbnailImage
 import com.example.ui.components.EditProfileNameDialog
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.ErrorBanner
 import com.example.ui.components.StatusPill
 import com.example.ui.components.UserAvatar
+import com.example.ui.components.VideoPreviewImage
 import com.example.ui.components.formatDateShort
 import com.example.ui.components.formatDateTime
+import com.example.ui.components.formatDurationMs
+import com.example.ui.components.formatFileSize
+import com.example.ui.theme.CobaltBright
+import com.example.ui.theme.CobaltDark
 import com.example.ui.theme.CobaltPrimary
+import com.example.ui.theme.CyanHighlight
+import com.example.ui.theme.DeepNavyBg
+import com.example.ui.theme.DeepNavyBorder
+import com.example.ui.theme.DeepNavyCard
+import com.example.ui.theme.DeepNavySurface
+import com.example.ui.theme.GoldCoin
+import com.example.ui.theme.GoldCoinBright
+import com.example.ui.theme.GoldCoinDarkContainer
+import com.example.ui.theme.GoldCoinSoft
+import com.example.ui.theme.InkDarkSecondary
 import com.example.ui.theme.RoyalPurple
 import com.example.ui.theme.StatusSuccess
 import com.example.ui.theme.StatusSuccessContainer
@@ -116,16 +151,13 @@ private enum class TeacherTab(val label: String) {
 fun TeacherDashboardScreen(
     teacher: UserEntity?,
     teacherCourses: List<CourseEntity>,
+    studioStats: TeacherStudioStats,
     uploadUiState: UploadUiState,
     onOpenCourse: (String) -> Unit,
-    onPublishCourse: (
-        title: String,
-        description: String,
-        category: String,
-        thumbnailUri: Uri?,
-        videoUri: Uri?,
-        remoteVideoUrl: String
-    ) -> Unit,
+    onOpenTeacherStudio: () -> Unit,
+    onPublishVideo: (title: String, description: String, category: String, videoType: VideoType, videoUri: Uri?) -> Unit,
+    onInspectVideo: suspend (Uri) -> Result<SelectedVideoInfo>,
+    onExtractVideoPreview: suspend (Uri) -> Bitmap?,
     onClearUploadStatus: () -> Unit,
     onEditCourse: (courseId: String, title: String, desc: String, category: String, published: Boolean) -> Unit,
     onDeleteCourse: (String) -> Unit,
@@ -143,8 +175,8 @@ fun TeacherDashboardScreen(
         EditTeacherCourseDialog(
             course = course,
             onDismiss = { editingCourse = null },
-            onSave = { t, d, c, pub ->
-                onEditCourse(course.courseId, t, d, c, pub)
+            onSave = { t, d, cat, pub ->
+                onEditCourse(course.courseId, t, d, cat, pub)
                 editingCourse = null
             }
         )
@@ -153,7 +185,7 @@ fun TeacherDashboardScreen(
     deletingCourse?.let { course ->
         AlertDialog(
             onDismissRequest = { deletingCourse = null },
-            title = { Text("Delete Course?") },
+            title = { Text("Delete Video?") },
             text = { Text("Remove \"${course.title}\" permanently? Students will no longer be able to watch it.") },
             confirmButton = {
                 Button(
@@ -180,7 +212,7 @@ fun TeacherDashboardScreen(
                         text = when (selectedTab) {
                             TeacherTab.VIDEOS -> "My Course Videos"
                             TeacherTab.NEW_VIDEO -> "Recently Uploaded"
-                            TeacherTab.UPLOAD -> "Upload New Course"
+                            TeacherTab.UPLOAD -> stringResource(R.string.upload_video_screen_title)
                             TeacherTab.PROFILE -> "Teacher Profile"
                         },
                         style = MaterialTheme.typography.headlineSmall,
@@ -241,13 +273,17 @@ fun TeacherDashboardScreen(
                 )
                 TeacherTab.UPLOAD -> TeacherUploadTab(
                     uploadUiState = uploadUiState,
-                    onPublish = onPublishCourse,
+                    onPublishVideo = onPublishVideo,
+                    onInspectVideo = onInspectVideo,
+                    onExtractVideoPreview = onExtractVideoPreview,
                     onClearStatus = onClearUploadStatus
                 )
                 TeacherTab.PROFILE -> TeacherProfileTab(
                     teacher = teacher,
                     totalUploaded = teacherCourses.size,
                     publishedCount = teacherCourses.count { it.published },
+                    studioStats = studioStats,
+                    onOpenTeacherStudio = onOpenTeacherStudio,
                     onUpdateName = onUpdateProfileName,
                     onUpdatePhoto = onUpdateProfilePhoto,
                     onLogout = onLogout
@@ -272,7 +308,6 @@ private fun TeacherVideosTab(
             .fillMaxSize()
             .testTag("teacher_videos_list")
     ) {
-        // Quick Upload (+) banner
         item {
             Surface(
                 onClick = onGoToUpload,
@@ -298,20 +333,20 @@ private fun TeacherVideosTab(
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Add,
-                            contentDescription = "Upload New Video",
+                            contentDescription = "Upload Video",
                             tint = Color.White,
                             modifier = Modifier.size(30.dp)
                         )
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Upload New Course Video",
+                            text = "Upload New Video",
                             style = MaterialTheme.typography.titleLarge,
                             color = Color.White,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Pick a video from your phone and publish directly to students.",
+                            text = "Select a video, choose a category, and earn 1 coin per 10 valid views.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.9f)
                         )
@@ -325,7 +360,7 @@ private fun TeacherVideosTab(
                 EmptyStateCard(
                     icon = Icons.Rounded.Movie,
                     title = "No Videos Uploaded Yet",
-                    subtitle = "Tap the Upload (+) tab to publish your first lesson for MB Seekho students.",
+                    subtitle = "Tap Upload (+) to select a video from your gallery and publish it to students.",
                     actionLabel = "Upload Video (+)",
                     onAction = onGoToUpload
                 )
@@ -350,6 +385,9 @@ private fun TeacherCourseManageCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val categoryLabel = remember(course.category) { CourseCategories.normalize(course.category) }
+    val isShort = remember(course.videoType) { VideoType.fromValue(course.videoType) == VideoType.SHORT }
+
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -364,9 +402,9 @@ private fun TeacherCourseManageCard(
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
             ) {
-                CourseThumbnailImage(
-                    thumbnailUrl = course.thumbnailUrl,
-                    category = course.category,
+                VideoPreviewImage(
+                    videoUrl = course.videoUrl,
+                    previewImageUrl = course.thumbnailUrl,
                     contentDescription = course.title,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -376,16 +414,40 @@ private fun TeacherCourseManageCard(
                         .padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    StatusPill(
-                        label = course.category,
-                        containerColor = CobaltPrimary.copy(alpha = 0.92f),
-                        contentColor = Color.White
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        StatusPill(
+                            label = if (isShort) "SHORT" else "LONG",
+                            containerColor = if (isShort) GoldCoinDarkContainer else DeepNavyBg.copy(alpha = 0.85f),
+                            contentColor = if (isShort) GoldCoinBright else CyanHighlight
+                        )
+                        StatusPill(
+                            label = categoryLabel,
+                            containerColor = CobaltPrimary.copy(alpha = 0.92f),
+                            contentColor = Color.White
+                        )
+                    }
                     StatusPill(
                         label = if (course.published) "PUBLISHED" else "DRAFT",
                         containerColor = if (course.published) StatusSuccessContainer else StatusWarningContainer,
                         contentColor = if (course.published) StatusSuccess else StatusWarning
                     )
+                }
+                if (course.durationMs > 0L) {
+                    Surface(
+                        color = DeepNavyBg.copy(alpha = 0.82f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(10.dp)
+                    ) {
+                        Text(
+                            text = formatDurationMs(course.durationMs),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
 
@@ -396,11 +458,21 @@ private fun TeacherCourseManageCard(
                 Text(
                     text = course.title,
                     style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (course.description.isNotBlank()) {
+                    Text(
+                        text = course.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Text(
-                    text = "Uploaded ${formatDateShort(course.createdAt)} • ${course.totalViews} view(s)",
+                    text = "Uploaded ${formatDateShort(course.createdAt)} • ${course.totalViews} valid view(s)",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -416,14 +488,14 @@ private fun TeacherCourseManageCard(
                     ) {
                         Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Preview")
+                        Text("Watch & Moderate")
                     }
                     OutlinedButton(
                         onClick = onEdit,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.testTag("edit_course_${course.courseId}")
                     ) {
-                        Icon(Icons.Rounded.Edit, contentDescription = "Edit course", modifier = Modifier.size(18.dp))
+                        Icon(Icons.Rounded.Edit, contentDescription = "Edit video", modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Edit")
                     }
@@ -433,7 +505,7 @@ private fun TeacherCourseManageCard(
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Delete,
-                            contentDescription = "Delete course",
+                            contentDescription = "Delete video",
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
@@ -461,13 +533,14 @@ private fun TeacherRecentVideosTab(
                 EmptyStateCard(
                     icon = Icons.Rounded.CloudUpload,
                     title = "No Recent Uploads",
-                    subtitle = "Your latest uploaded videos with exact upload dates and timestamps will appear here.",
+                    subtitle = "Your latest uploaded videos with upload timestamps will appear here.",
                     actionLabel = "Upload Video (+)",
                     onAction = onGoToUpload
                 )
             }
         } else {
             items(latestFirst, key = { it.courseId }) { course ->
+                val categoryLabel = remember(course.category) { CourseCategories.normalize(course.category) }
                 Card(
                     onClick = { onPlayCourse(course.courseId) },
                     shape = RoundedCornerShape(18.dp),
@@ -479,9 +552,9 @@ private fun TeacherRecentVideosTab(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        CourseThumbnailImage(
-                            thumbnailUrl = course.thumbnailUrl,
-                            category = course.category,
+                        VideoPreviewImage(
+                            videoUrl = course.videoUrl,
+                            previewImageUrl = course.thumbnailUrl,
                             contentDescription = course.title,
                             modifier = Modifier
                                 .size(width = 112.dp, height = 74.dp)
@@ -491,19 +564,28 @@ private fun TeacherRecentVideosTab(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            StatusPill(
-                                label = "NEW UPLOAD",
-                                containerColor = RoyalPurple.copy(alpha = 0.14f),
-                                contentColor = RoyalPurple
-                            )
+                            val isShort = VideoType.fromValue(course.videoType) == VideoType.SHORT
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                StatusPill(
+                                    label = if (isShort) "SHORT" else "LONG",
+                                    containerColor = if (isShort) GoldCoinDarkContainer else DeepNavyCard,
+                                    contentColor = if (isShort) GoldCoinBright else CyanHighlight
+                                )
+                                StatusPill(
+                                    label = categoryLabel,
+                                    containerColor = RoyalPurple.copy(alpha = 0.14f),
+                                    contentColor = RoyalPurple
+                                )
+                            }
                             Text(
                                 text = course.title,
                                 style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = formatDateTime(course.createdAt),
+                                text = "${formatDateTime(course.createdAt)} • ${course.totalViews} views",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -515,23 +597,57 @@ private fun TeacherRecentVideosTab(
     }
 }
 
+/**
+ * Clean Teacher Video Upload Form containing:
+ * 1. Upload Mode Selector: Upload Short Video (9:16) vs Upload Long Video (16:9)
+ * 2. Select Video (opens Android Gallery / Video Picker; shows filename & real video preview)
+ * 3. Video Title
+ * 4. Video Description
+ * 5. Course Category (the 7 MB Seekho categories)
+ * 6. UPLOAD SHORT VIDEO / UPLOAD LONG VIDEO button
+ * No separate thumbnail field anywhere.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TeacherUploadTab(
     uploadUiState: UploadUiState,
-    onPublish: (String, String, String, Uri?, Uri?, String) -> Unit,
+    onPublishVideo: (title: String, description: String, category: String, videoType: VideoType, videoUri: Uri?) -> Unit,
+    onInspectVideo: suspend (Uri) -> Result<SelectedVideoInfo>,
+    onExtractVideoPreview: suspend (Uri) -> Bitmap?,
     onClearStatus: () -> Unit
 ) {
+    var selectedVideoType by remember { mutableStateOf(VideoType.SHORT) }
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(CourseCategories.all.first()) }
-    var selectedThumbUri by remember { mutableStateOf<Uri?>(null) }
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
-    var remoteVideoUrl by remember { mutableStateOf("") }
+    var selectedVideoInfo by remember { mutableStateOf<SelectedVideoInfo?>(null) }
+    var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var isLoadingPreview by remember { mutableStateOf(false) }
 
-    val thumbPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) selectedThumbUri = uri
+    LaunchedEffect(selectedVideoUri) {
+        val uri = selectedVideoUri
+        if (uri == null) {
+            selectedVideoInfo = null
+            previewBitmap = null
+            isLoadingPreview = false
+        } else {
+            isLoadingPreview = true
+            selectedVideoInfo = onInspectVideo(uri).getOrNull()
+            previewBitmap = onExtractVideoPreview(uri)
+            isLoadingPreview = false
+        }
+    }
+
+    // Reset fields ONLY after a verified successful upload
+    LaunchedEffect(uploadUiState.lastUploadedCourseId) {
+        if (uploadUiState.lastUploadedCourseId != null) {
+            title = ""
+            description = ""
+            selectedVideoUri = null
+            selectedVideoInfo = null
+            previewBitmap = null
+        }
     }
 
     val videoPicker = rememberLauncherForActivityResult(
@@ -539,9 +655,13 @@ private fun TeacherUploadTab(
     ) { uri ->
         if (uri != null) {
             selectedVideoUri = uri
-            remoteVideoUrl = ""
+            if (uploadUiState.errorMessage != null || uploadUiState.successMessage != null) {
+                onClearStatus()
+            }
         }
     }
+
+    val isShortSelected = selectedVideoType == VideoType.SHORT
 
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
@@ -550,154 +670,392 @@ private fun TeacherUploadTab(
             .fillMaxSize()
             .testTag("teacher_upload_form")
     ) {
-        // Large attractive Plus Upload trigger card
+        // 0. TWO UPLOAD OPTIONS: Upload Short Video & Upload Long Video
         item {
-            Surface(
-                onClick = {
-                    videoPicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                    )
-                },
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("pick_video_gallery_button")
+            Card(
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = DeepNavyBg),
+                border = BorderStroke(1.dp, DeepNavyBorder),
+                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 26.dp, horizontal = 20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(68.dp)
-                            .clip(CircleShape)
-                            .background(Brush.linearGradient(listOf(CobaltPrimary, RoyalPurple))),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Add,
-                            contentDescription = "Select Video File",
-                            tint = Color.White,
-                            modifier = Modifier.size(38.dp)
+                        Text(
+                            text = "Choose Upload Type",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        StatusPill(
+                            label = if (isShortSelected) "9:16 SHORTS" else "16:9 LESSON",
+                            containerColor = if (isShortSelected) GoldCoinDarkContainer else CobaltPrimary.copy(alpha = 0.3f),
+                            contentColor = if (isShortSelected) GoldCoinBright else CyanHighlight
                         )
                     }
-                    Text(
-                        text = if (selectedVideoUri != null) "Video Selected from Gallery ✓" else "Tap (+) to Select Video from Phone",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = selectedVideoUri?.lastPathSegment ?: "Uses Android Photo Picker — zero storage permission needed",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
-                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        UploadTypeOptionCard(
+                            title = "Upload Short Video",
+                            subtitle = "Vertical 9:16 • Shorts Feed",
+                            icon = Icons.Rounded.StayCurrentPortrait,
+                            selected = isShortSelected,
+                            accentColor = GoldCoinBright,
+                            enabled = !uploadUiState.isUploading,
+                            onClick = { selectedVideoType = VideoType.SHORT },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("upload_option_short_video")
+                        )
+
+                        UploadTypeOptionCard(
+                            title = "Upload Long Video",
+                            subtitle = "Horizontal 16:9 • Full Video",
+                            icon = Icons.Rounded.OndemandVideo,
+                            selected = !isShortSelected,
+                            accentColor = CyanHighlight,
+                            enabled = !uploadUiState.isUploading,
+                            onClick = { selectedVideoType = VideoType.LONG },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("upload_option_long_video")
+                        )
+                    }
                 }
             }
         }
 
+        // 1. SELECT VIDEO — Large clickable gallery trigger with live filename & video preview
+        item {
+            Surface(
+                onClick = {
+                    if (!uploadUiState.isUploading) {
+                        videoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                        )
+                    }
+                },
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(
+                    width = 1.5.dp,
+                    color = if (selectedVideoUri != null) {
+                        if (isShortSelected) GoldCoin else CobaltPrimary
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    }
+                ),
+                shadowElevation = 3.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("select_video_button")
+            ) {
+                if (selectedVideoUri == null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.linearGradient(
+                                    if (isShortSelected) {
+                                        listOf(
+                                            DeepNavyBg.copy(alpha = 0.06f),
+                                            GoldCoinSoft.copy(alpha = 0.22f)
+                                        )
+                                    } else {
+                                        listOf(
+                                            CobaltPrimary.copy(alpha = 0.08f),
+                                            RoyalPurple.copy(alpha = 0.12f)
+                                        )
+                                    }
+                                )
+                            )
+                            .padding(vertical = 32.dp, horizontal = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        if (isShortSelected) listOf(DeepNavyCard, CobaltPrimary)
+                                        else listOf(CobaltPrimary, RoyalPurple)
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isShortSelected) Icons.Rounded.Bolt else Icons.Rounded.VideoFile,
+                                contentDescription = stringResource(R.string.select_video_label),
+                                tint = if (isShortSelected) GoldCoinBright else Color.White,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                        Text(
+                            text = if (isShortSelected) "Select Short Video" else "Select Long Video",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            text = if (isShortSelected) {
+                                "Choose a vertical 9:16 video from your phone gallery"
+                            } else {
+                                stringResource(R.string.select_video_subtitle)
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = if (isShortSelected) {
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(DeepNavyBg)
+                                    .padding(vertical = 12.dp)
+                            } else {
+                                Modifier.fillMaxWidth()
+                            },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = if (isShortSelected) {
+                                    Modifier
+                                        .width(190.dp)
+                                        .aspectRatio(9f / 16f)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Brush.linearGradient(listOf(DeepNavyBg, CobaltDark, CobaltPrimary)))
+                                } else {
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(16f / 9f)
+                                        .background(Brush.linearGradient(listOf(CobaltDark, CobaltPrimary, RoyalPurple)))
+                                },
+                                contentAlignment = Alignment.Center
+                            ) {
+                            val bmp = previewBitmap
+                            when {
+                                bmp != null -> {
+                                    Image(
+                                        bitmap = bmp.asImageBitmap(),
+                                        contentDescription = "Selected video preview",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                                isLoadingPreview -> {
+                                    CircularProgressIndicator(
+                                        color = Color.White,
+                                        strokeWidth = 3.dp,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Movie,
+                                        contentDescription = "Selected video preview",
+                                        tint = Color.White.copy(alpha = 0.45f),
+                                        modifier = Modifier.size(56.dp)
+                                    )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.22f))
+                            )
+
+                            Surface(
+                                shape = CircleShape,
+                                color = Color.White.copy(alpha = 0.92f),
+                                modifier = Modifier.size(52.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayArrow,
+                                        contentDescription = "Selected video",
+                                        tint = CobaltPrimary,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
+
+                            selectedVideoInfo?.durationMs?.takeIf { it > 0L }?.let { duration ->
+                                Surface(
+                                    color = Color.Black.copy(alpha = 0.72f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(10.dp)
+                                ) {
+                                    Text(
+                                        text = formatDurationMs(duration),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.CheckCircle,
+                                contentDescription = "Video selected",
+                                tint = StatusSuccess,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = selectedVideoInfo?.displayName
+                                        ?: selectedVideoUri?.lastPathSegment
+                                        ?: "Selected Video",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.testTag("selected_video_filename")
+                                )
+                                val sizeLabel = selectedVideoInfo?.sizeBytes?.let { formatFileSize(it) }.orEmpty()
+                                Text(
+                                    text = if (sizeLabel.isNotBlank()) {
+                                        "$sizeLabel • ${stringResource(R.string.change_video_hint)}"
+                                    } else {
+                                        stringResource(R.string.change_video_hint)
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. VIDEO TITLE, 3. VIDEO DESCRIPTION, 4. COURSE CATEGORY, 5. UPLOAD VIDEO BUTTON
         item {
             Card(
                 shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // 2. Video Title
                     OutlinedTextField(
                         value = title,
                         onValueChange = {
                             title = it
-                            if (uploadUiState.errorMessage != null || uploadUiState.successMessage != null) onClearStatus()
+                            if (uploadUiState.errorMessage != null || uploadUiState.successMessage != null) {
+                                onClearStatus()
+                            }
                         },
-                        label = { Text("1. Course Title") },
-                        placeholder = { Text("e.g. Complete Kotlin & Jetpack Compose") },
+                        label = { Text(stringResource(R.string.video_title_label)) },
+                        placeholder = { Text(stringResource(R.string.video_title_placeholder)) },
                         singleLine = true,
+                        enabled = !uploadUiState.isUploading,
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("upload_course_title_input")
+                            .testTag("upload_video_title_input")
                     )
 
+                    // 3. Video Description
                     OutlinedTextField(
                         value = description,
-                        onValueChange = { description = it },
-                        label = { Text("2. Course Description") },
-                        placeholder = { Text("Describe what students will learn in this lesson...") },
+                        onValueChange = {
+                            description = it
+                            if (uploadUiState.errorMessage != null || uploadUiState.successMessage != null) {
+                                onClearStatus()
+                            }
+                        },
+                        label = { Text(stringResource(R.string.video_description_label)) },
+                        placeholder = { Text(stringResource(R.string.video_description_placeholder)) },
                         minLines = 3,
-                        maxLines = 5,
+                        maxLines = 6,
+                        enabled = !uploadUiState.isUploading,
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("upload_course_desc_input")
+                            .testTag("upload_video_description_input")
                     )
 
-                    Text(
-                        text = "3. Course Category",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(CourseCategories.all) { category ->
-                            FilterChip(
-                                selected = selectedCategory == category,
-                                onClick = { selectedCategory = category },
-                                label = { Text(category) }
+                    // 4. Course Category (Exact 7 MB Seekho Categories)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Category,
+                                contentDescription = null,
+                                tint = CobaltPrimary,
+                                modifier = Modifier.size(18.dp)
                             )
+                            Text(
+                                text = "Course Category",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("upload_category_selector")
+                        ) {
+                            CourseCategories.all.forEach { category ->
+                                FilterChip(
+                                    selected = selectedCategory == category,
+                                    onClick = {
+                                        if (!uploadUiState.isUploading) {
+                                            selectedCategory = category
+                                        }
+                                    },
+                                    label = { Text(category) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = CobaltPrimary,
+                                        selectedLabelColor = Color.White
+                                    ),
+                                    modifier = Modifier.testTag(
+                                        "upload_category_${category.lowercase().replace(" ", "_")}"
+                                    )
+                                )
+                            }
                         }
                     }
 
-                    Text(
-                        text = "4. Course Thumbnail",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    OutlinedButton(
-                        onClick = {
-                            thumbPicker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("pick_thumbnail_button")
-                    ) {
-                        Icon(Icons.Rounded.Image, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            if (selectedThumbUri != null) "Thumbnail Selected ✓ (Tap to Change)"
-                            else "Choose Thumbnail Image from Gallery"
-                        )
-                    }
-
-                    Text(
-                        text = "5. Or Paste Direct HTTPS Video URL (Optional)",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    OutlinedTextField(
-                        value = remoteVideoUrl,
-                        onValueChange = {
-                            remoteVideoUrl = it
-                            if (it.isNotBlank()) selectedVideoUri = null
-                        },
-                        label = { Text("HTTPS Video Stream URL") },
-                        placeholder = { Text("https://example.com/lesson.mp4") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("upload_video_url_input")
-                    )
-
+                    // Upload Progress Bar
                     if (uploadUiState.isUploading) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
@@ -712,19 +1070,27 @@ private fun TeacherUploadTab(
                                     .fillMaxWidth()
                                     .height(8.dp)
                                     .clip(RoundedCornerShape(50))
+                                    .testTag("upload_video_progress")
                             )
                         }
                     }
 
+                    // Inline Validation / Upload Error
                     if (!uploadUiState.errorMessage.isNullOrBlank()) {
-                        ErrorBanner(message = uploadUiState.errorMessage)
+                        ErrorBanner(
+                            message = uploadUiState.errorMessage,
+                            modifier = Modifier.testTag("upload_video_error")
+                        )
                     }
 
+                    // Inline Success Message
                     if (!uploadUiState.successMessage.isNullOrBlank()) {
                         Surface(
                             color = StatusSuccessContainer,
                             shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("upload_video_success")
                         ) {
                             Row(
                                 modifier = Modifier.padding(12.dp),
@@ -741,41 +1107,42 @@ private fun TeacherUploadTab(
                         }
                     }
 
+                    // 5. UPLOAD SHORT VIDEO / UPLOAD LONG VIDEO Button
                     Button(
                         onClick = {
-                            onPublish(
+                            onPublishVideo(
                                 title,
                                 description,
                                 selectedCategory,
-                                selectedThumbUri,
-                                selectedVideoUri,
-                                remoteVideoUrl
+                                selectedVideoType,
+                                selectedVideoUri
                             )
-                            if (title.trim().length >= 3 && description.trim().length >= 5 && (selectedVideoUri != null || remoteVideoUrl.startsWith("https://"))) {
-                                title = ""
-                                description = ""
-                                selectedThumbUri = null
-                                selectedVideoUri = null
-                                remoteVideoUrl = ""
-                            }
                         },
                         enabled = !uploadUiState.isUploading,
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = RoyalPurple,
+                            containerColor = if (isShortSelected) CobaltBright else CobaltPrimary,
                             contentColor = Color.White
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(54.dp)
-                            .testTag("publish_course_button")
+                            .height(56.dp)
+                            .testTag("upload_video_button")
                     ) {
-                        Icon(Icons.Rounded.CloudUpload, contentDescription = null)
+                        Icon(
+                            imageVector = if (isShortSelected) Icons.Rounded.Bolt else Icons.Rounded.CloudUpload,
+                            contentDescription = null,
+                            tint = if (isShortSelected) GoldCoinBright else Color.White
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = if (uploadUiState.isUploading) "Publishing..." else "Publish Course",
+                            text = when {
+                                uploadUiState.isUploading -> stringResource(R.string.uploading_video_button)
+                                isShortSelected -> "UPLOAD SHORT VIDEO"
+                                else -> "UPLOAD LONG VIDEO"
+                            },
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.ExtraBold
                         )
                     }
                 }
@@ -785,10 +1152,73 @@ private fun TeacherUploadTab(
 }
 
 @Composable
+private fun UploadTypeOptionCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    accentColor: Color,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(16.dp),
+        color = if (selected) accentColor.copy(alpha = 0.16f) else DeepNavySurface,
+        border = BorderStroke(
+            width = if (selected) 2.dp else 1.dp,
+            color = if (selected) accentColor else DeepNavyBorder
+        ),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (selected) accentColor.copy(alpha = 0.24f) else DeepNavyCard,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = title,
+                        tint = if (selected) accentColor else InkDarkSecondary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) accentColor else InkDarkSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
 private fun TeacherProfileTab(
     teacher: UserEntity?,
     totalUploaded: Int,
     publishedCount: Int,
+    studioStats: TeacherStudioStats,
+    onOpenTeacherStudio: () -> Unit,
     onUpdateName: (String) -> Unit,
     onUpdatePhoto: (Uri) -> Unit,
     onLogout: () -> Unit
@@ -817,6 +1247,136 @@ private fun TeacherProfileTab(
             .fillMaxSize()
             .testTag("teacher_profile_view")
     ) {
+        // Teacher Studio Prominent Creator Entry Card (Deep Navy + Gold + Cyan)
+        item {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = DeepNavyBg),
+                border = BorderStroke(1.5.dp, GoldCoin.copy(alpha = 0.65f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenTeacherStudio)
+                    .testTag("open_teacher_studio_card")
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(DeepNavyBg, DeepNavyCard, GoldCoinDarkContainer.copy(alpha = 0.85f))
+                            )
+                        )
+                        .padding(18.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(GoldCoin.copy(alpha = 0.22f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.AutoGraph,
+                                        contentDescription = "Teacher Studio",
+                                        tint = GoldCoinBright,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = "Teacher Studio",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                    Text(
+                                        text = "Last 28 days analytics & coin rewards",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = CyanHighlight
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                                contentDescription = "Open Teacher Studio",
+                                tint = GoldCoinBright,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.White.copy(alpha = 0.08f),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.MonetizationOn,
+                                        contentDescription = null,
+                                        tint = GoldCoinBright,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Column {
+                                        Text(
+                                            text = "${studioStats.totalCoinBalance} Coins",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = GoldCoinSoft,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                        Text(
+                                            text = "Balance",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.7f)
+                                        )
+                                    }
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.White.copy(alpha = 0.08f),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                                ) {
+                                    Text(
+                                        text = "${studioStats.viewsLast28Days} Views",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = CyanHighlight,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                    Text(
+                                        text = "Last 28 days",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             Card(
                 shape = RoundedCornerShape(26.dp),
@@ -893,7 +1453,7 @@ private fun TeacherProfileTab(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 ProfileStatCard(
-                    title = "Uploaded Courses",
+                    title = "Uploaded Videos",
                     value = totalUploaded.toString(),
                     icon = Icons.Rounded.School,
                     accent = RoyalPurple,
@@ -926,7 +1486,8 @@ private fun TeacherProfileTab(
                     )
                     ProfileDetailRow("Account Created", teacher?.createdAt?.let { formatDateShort(it) } ?: "—")
                     ProfileDetailRow("Status", if (teacher?.active == true) "Active" else "Disabled")
-                    ProfileDetailRow("Permissions", "Upload & Manage Own Courses")
+                    ProfileDetailRow("Reward Rate", "1 Coin per 10 Valid Views")
+                    ProfileDetailRow("Permissions", "Upload & Manage Own Videos")
                 }
             }
         }
@@ -960,29 +1521,30 @@ private fun EditTeacherCourseDialog(
 ) {
     var title by remember { mutableStateOf(course.title) }
     var description by remember { mutableStateOf(course.description) }
-    var category by remember { mutableStateOf(course.category) }
+    var category by remember { mutableStateOf(CourseCategories.normalize(course.category)) }
     var published by remember { mutableStateOf(course.published) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit Course") },
+        title = { Text("Edit Video") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Course Title") },
+                    label = { Text("Video Title") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
-                    label = { Text("Description") },
+                    label = { Text("Video Description") },
                     minLines = 2,
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth()
                 )
+                Text("Course Category", style = MaterialTheme.typography.labelLarge)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(CourseCategories.all) { cat ->
                         FilterChip(

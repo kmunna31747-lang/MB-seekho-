@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Badge
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
@@ -67,7 +69,8 @@ import com.example.ui.theme.VioletBright
 fun RoleLoginScreen(
     role: UserRole,
     uiState: LoginUiState,
-    onRedeemCode: (rawCode: String, displayName: String) -> Unit,
+    onRedeemStudentCode: (rawCode: String, displayName: String) -> Unit,
+    onRedeemTeacherCode: (rawCode: String, displayName: String) -> Unit,
     onReturningMemberSignIn: (memberId: String) -> Unit,
     onClearError: () -> Unit,
     onBack: () -> Unit
@@ -75,15 +78,29 @@ fun RoleLoginScreen(
     BackHandler(onBack = onBack)
 
     val isTeacher = role == UserRole.TEACHER
-    val heading = if (isTeacher) stringResource(R.string.teacher_login_heading) else stringResource(R.string.student_login_heading)
+    val heading = if (isTeacher) {
+        stringResource(R.string.teacher_login_heading)
+    } else {
+        stringResource(R.string.student_login_heading)
+    }
     val accentGradient = if (isTeacher) listOf(RoyalPurple, VioletBright) else listOf(CobaltDark, CobaltPrimary)
     val primaryColor = if (isTeacher) RoyalPurple else CobaltPrimary
-    val placeholderFormat = if (isTeacher) "MBTC-XXXX-XXXX" else "MBST-XXXX-XXXX"
 
     var isReturningMember by remember { mutableStateOf(false) }
     var accessCode by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
     var memberId by remember { mutableStateOf("") }
+
+    fun submitCurrentForm() {
+        if (uiState.isLoading) return
+        if (isReturningMember) {
+            if (memberId.isNotBlank()) onReturningMemberSignIn(memberId)
+        } else if (isTeacher) {
+            if (accessCode.isNotBlank()) onRedeemTeacherCode(accessCode, displayName)
+        } else {
+            if (accessCode.isNotBlank()) onRedeemStudentCode(accessCode, displayName)
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -159,7 +176,9 @@ fun RoleLoginScreen(
                                 isReturningMember = false
                                 onClearError()
                             },
-                            label = { Text("New Access Code") },
+                            label = {
+                                Text(if (isTeacher) "Teacher Access Code" else "Student Access Code")
+                            },
                             modifier = Modifier.testTag("tab_new_access_code")
                         )
                         FilterChip(
@@ -168,7 +187,7 @@ fun RoleLoginScreen(
                                 isReturningMember = true
                                 onClearError()
                             },
-                            label = { Text("Returning Member ID") },
+                            label = { Text(if (isTeacher) "Returning Teacher" else "Returning Student") },
                             modifier = Modifier.testTag("tab_returning_member")
                         )
                     }
@@ -176,9 +195,9 @@ fun RoleLoginScreen(
                     if (!isReturningMember) {
                         Text(
                             text = if (isTeacher) {
-                                "Enter your single-use Teacher Access Code issued by the MB Seekho owner to activate your instructor account."
+                                "Enter your unique single-use Teacher Access Code issued by the MB Seekho owner to activate your instructor account."
                             } else {
-                                "Enter your single-use Student Access Code issued by the MB Seekho owner to unlock all published courses."
+                                "Enter your unique single-use Student Access Code to activate your MB Seekho Student account."
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -190,8 +209,12 @@ fun RoleLoginScreen(
                                 accessCode = it.uppercase()
                                 if (uiState.errorMessage != null) onClearError()
                             },
-                            label = { Text(stringResource(R.string.access_code_label)) },
-                            placeholder = { Text(placeholderFormat) },
+                            label = {
+                                Text(if (isTeacher) "Teacher Access Code" else "Student Access Code")
+                            },
+                            placeholder = {
+                                Text(if (isTeacher) "MBTC-XXXX-XXXX" else "MBST-XXXX-XXXX-XXXX")
+                            },
                             leadingIcon = {
                                 Icon(Icons.Rounded.Key, contentDescription = null, tint = primaryColor)
                             },
@@ -210,7 +233,9 @@ fun RoleLoginScreen(
                             value = displayName,
                             onValueChange = { displayName = it },
                             label = { Text("Your Full Name (Optional)") },
-                            placeholder = { Text(if (isTeacher) "e.g. Prof. Aarav Sharma" else "e.g. Priya Verma") },
+                            placeholder = {
+                                Text(if (isTeacher) "e.g. Prof. Aarav Sharma" else "e.g. Priya Verma")
+                            },
                             leadingIcon = {
                                 Icon(Icons.Rounded.Person, contentDescription = null, tint = primaryColor)
                             },
@@ -220,11 +245,7 @@ fun RoleLoginScreen(
                                 imeAction = ImeAction.Done
                             ),
                             keyboardActions = KeyboardActions(
-                                onDone = {
-                                    if (!uiState.isLoading && accessCode.isNotBlank()) {
-                                        onRedeemCode(accessCode, displayName)
-                                    }
-                                }
+                                onDone = { submitCurrentForm() }
                             ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
@@ -233,7 +254,11 @@ fun RoleLoginScreen(
                         )
                     } else {
                         Text(
-                            text = "Already activated your account earlier? Sign back in with your assigned Member ID shown on your Profile screen.",
+                            text = if (isTeacher) {
+                                "Already activated your teacher account? Sign back in using your Teacher ID shown on your Profile."
+                            } else {
+                                "Already activated your student account? Sign back in using your Student ID shown on your Profile to restore your saved courses and progress."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -254,6 +279,9 @@ fun RoleLoginScreen(
                                 capitalization = KeyboardCapitalization.Characters,
                                 imeAction = ImeAction.Done
                             ),
+                            keyboardActions = KeyboardActions(
+                                onDone = { submitCurrentForm() }
+                            ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -269,15 +297,10 @@ fun RoleLoginScreen(
                     }
 
                     Button(
-                        onClick = {
-                            if (isReturningMember) {
-                                onReturningMemberSignIn(memberId)
-                            } else {
-                                onRedeemCode(accessCode, displayName)
-                            }
-                        },
+                        onClick = { submitCurrentForm() },
                         enabled = !uiState.isLoading && (
-                            if (isReturningMember) memberId.isNotBlank() else accessCode.isNotBlank()
+                            if (isReturningMember) memberId.isNotBlank()
+                            else accessCode.isNotBlank()
                         ),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -296,13 +319,53 @@ fun RoleLoginScreen(
                                 modifier = Modifier.size(22.dp)
                             )
                             Spacer(Modifier.width(10.dp))
-                            Text("Verifying...")
+                            Text("Verifying Code...")
                         } else {
                             Text(
                                 text = stringResource(R.string.continue_button),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
+                        }
+                    }
+
+                    // Mandatory Future Code Notice below Student Access Code entry area
+                    if (!isTeacher) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, CobaltPrimary.copy(alpha = 0.25f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("student_future_code_notice")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Info,
+                                    contentDescription = "Future Student Access Codes Notice",
+                                    tint = CobaltPrimary,
+                                    modifier = Modifier
+                                        .padding(top = 2.dp)
+                                        .size(20.dp)
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = "Future Access Code Batches",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CobaltDark
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.student_future_code_notice),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -323,7 +386,11 @@ fun RoleLoginScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "Each access code is hashed with SHA-256, verified atomically, and redeemable strictly once on its designated portal.",
+                                text = if (isTeacher) {
+                                    "Teacher Access Codes are SHA-256 hashed, verified atomically on the backend, and redeemable strictly once."
+                                } else {
+                                    "Student Access Codes are SHA-256 hashed, validated securely on the backend, and each valid code can be redeemed only once."
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -331,6 +398,8 @@ fun RoleLoginScreen(
                     }
                 }
             }
+
+            Spacer(Modifier.height(20.dp))
         }
     }
 }

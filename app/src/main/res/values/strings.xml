@@ -7,9 +7,11 @@
     <string name="teacher_login_heading">Teacher Login</string>
     <string name="access_code_label">Access Code</string>
     <string name="continue_button">Continue</string>
+    <string name="student_future_code_notice">More new Student Access Codes will be added in the future. New batches of codes will keep arriving, including more than 10,000 additional codes. The system is designed to accept and securely validate new codes as they are added.</string>
     <string name="error_invalid_code">Invalid access code. Please check your code or contact the MB Seekho owner.</string>
     <string name="error_already_used_code">This access code has already been used and cannot be redeemed again.</string>
-    <string name="error_revoked_code">This access code has been revoked by the administrator.</string>
+    <string name="error_disabled_code">This access code has been disabled by the administrator.</string>
+    <string name="error_revoked_code">This access code has been disabled by the administrator.</string>
     <string name="error_wrong_portal">This access code cannot be used on this login screen.</string>
     <string name="error_account_disabled">This account has been disabled by the administrator.</string>
     <string name="error_rate_limited">Too many failed attempts. Please wait a moment and try again.</string>
@@ -22,4 +24,14 @@
     <string name="nav_upload">Upload</string>
     <string name="owner_console_label">Owner Console</string>
     <string name="logout_button">Logout</string>
+    <string name="upload_video_screen_title">Upload Video</string>
+    <string name="select_video_label">Select Video</string>
+    <string name="select_video_subtitle">Tap anywhere to choose a video from your gallery</string>
+    <string name="change_video_hint">Tap anywhere to select a different video</string>
+    <string name="video_title_label">Video Title</string>
+    <string name="video_title_placeholder">Enter Video Title</string>
+    <string name="video_description_label">Video Description</string>
+    <string name="video_description_placeholder">Enter Video Description</string>
+    <string name="upload_video_button">UPLOAD VIDEO</string>
+    <string name="uploading_video_button">UPLOADING VIDEO...</string>
 </resources>

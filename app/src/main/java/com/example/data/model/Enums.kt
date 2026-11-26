@@ -12,14 +12,24 @@ enum class UserRole(val value: String, val label: String) {
 }
 
 enum class CodeStatus(val value: String, val label: String) {
-    AVAILABLE("available", "Available"),
-    ASSIGNED("assigned", "Assigned"),
+    AVAILABLE("available", "Unused"),
+    ASSIGNED("assigned", "Unused (Assigned)"),
     USED("used", "Used"),
-    REVOKED("revoked", "Revoked");
+    DISABLED("disabled", "Disabled");
 
     companion object {
-        fun fromValue(raw: String): CodeStatus =
-            entries.firstOrNull { it.value.equals(raw, ignoreCase = true) } ?: AVAILABLE
+        fun fromValue(raw: String): CodeStatus = when (raw.trim().lowercase()) {
+            "available", "unused" -> AVAILABLE
+            "assigned" -> ASSIGNED
+            "used" -> USED
+            "disabled", "revoked" -> DISABLED
+            else -> AVAILABLE
+        }
+
+        fun isUnused(raw: String): Boolean {
+            val s = fromValue(raw)
+            return s == AVAILABLE || s == ASSIGNED
+        }
     }
 }
 
@@ -35,13 +45,39 @@ enum class PaymentStatus(val value: String, val label: String) {
 }
 
 object CourseCategories {
+    const val FACEBOOK = "Facebook Course"
+    const val YOUTUBE = "YouTube Course"
+    const val SOCIAL_MEDIA = "Social Media Course"
+    const val SNAPCHAT = "Snapchat Course"
+    const val EARNING_APP = "Earning App Course"
+    const val EARNING_WEBSITE = "Earning Website Course"
+    const val OTHER = "Other Course"
+
     val all = listOf(
-        "Programming",
-        "Mathematics",
-        "Science",
-        "UI/UX Design",
-        "Business",
-        "Languages",
-        "Exam Prep"
+        FACEBOOK,
+        YOUTUBE,
+        SOCIAL_MEDIA,
+        SNAPCHAT,
+        EARNING_APP,
+        EARNING_WEBSITE,
+        OTHER
     )
+
+    fun normalize(raw: String?): String {
+        val trimmed = raw?.trim().orEmpty()
+        return all.firstOrNull { it.equals(trimmed, ignoreCase = true) } ?: OTHER
+    }
 }
+
+enum class VideoType(val value: String, val label: String) {
+    SHORT("short", "Short Video"),
+    LONG("long", "Long Video");
+
+    companion object {
+        fun fromValue(raw: String?): VideoType = when (raw?.trim()?.lowercase()) {
+            "short", "shorts" -> SHORT
+            else -> LONG
+        }
+    }
+}
+

@@ -1,5 +1,9 @@
 package com.example.ui.components
 
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.os.Build
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,8 +29,11 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlayCircleFilled
 import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,6 +50,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,8 +58,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -61,10 +71,14 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.local.CourseEntity
+import com.example.data.model.CourseCategories
 import com.example.ui.theme.CobaltDark
 import com.example.ui.theme.CobaltPrimary
+import com.example.ui.theme.LikeRose
 import com.example.ui.theme.RoyalPurple
 import com.example.ui.theme.StatusSuccess
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -84,6 +98,17 @@ fun formatDurationMs(millis: Long): String {
     val mins = totalSeconds / 60L
     val secs = totalSeconds % 60L
     return "%02d:%02d".format(mins, secs)
+}
+
+fun formatFileSize(bytes: Long): String {
+    if (bytes <= 0L) return ""
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    return when {
+        mb >= 1.0 -> String.format(Locale.getDefault(), "%.1f MB", mb)
+        kb >= 1.0 -> String.format(Locale.getDefault(), "%.0f KB", kb)
+        else -> "$bytes B"
+    }
 }
 
 fun fallbackThumbnailResForCategory(category: String): Int {
@@ -115,6 +140,94 @@ fun MbSeekhoLogoBadge(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
+    }
+}
+
+/**
+ * Displays a video preview extracted directly from the selected video itself,
+ * never requiring a separate teacher-uploaded thumbnail image.
+ */
+@Composable
+fun VideoPreviewImage(
+    videoUrl: String,
+    previewImageUrl: String?,
+    contentDescription: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    if (!previewImageUrl.isNullOrBlank()) {
+        Box(
+            modifier = modifier.background(
+                Brush.linearGradient(listOf(CobaltDark, CobaltPrimary, RoyalPurple))
+            )
+        ) {
+            AsyncImage(
+                model = previewImageUrl,
+                contentDescription = contentDescription,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        return
+    }
+
+    val liveFrame by produceState<Bitmap?>(initialValue = null, videoUrl) {
+        value = withContext(Dispatchers.IO) {
+            if (videoUrl.isBlank()) return@withContext null
+            val retriever = MediaMetadataRetriever()
+            try {
+                if (videoUrl.startsWith("http://") || videoUrl.startsWith("https://")) {
+                    retriever.setDataSource(videoUrl, emptyMap())
+                } else {
+                    retriever.setDataSource(context, Uri.parse(videoUrl))
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    retriever.getScaledFrameAtTime(
+                        1_000_000L,
+                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                        640,
+                        360
+                    ) ?: retriever.getScaledFrameAtTime(
+                        0L,
+                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                        640,
+                        360
+                    )
+                } else {
+                    retriever.getFrameAtTime(1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        ?: retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                }
+            } catch (_: Exception) {
+                null
+            } finally {
+                runCatching { retriever.release() }
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier.background(
+            Brush.linearGradient(listOf(CobaltDark, CobaltPrimary, RoyalPurple))
+        ),
+        contentAlignment = Alignment.Center
+    ) {
+        val frame = liveFrame
+        if (frame != null) {
+            Image(
+                bitmap = frame.asImageBitmap(),
+                contentDescription = contentDescription,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Rounded.Movie,
+                contentDescription = contentDescription,
+                tint = Color.White.copy(alpha = 0.25f),
+                modifier = Modifier.size(56.dp)
+            )
+        }
     }
 }
 
@@ -198,14 +311,17 @@ fun UserAvatar(
 fun CourseCard(
     course: CourseEntity,
     isSaved: Boolean,
+    likeCount: Int? = null,
     progressPercent: Int? = null,
     showNewBadge: Boolean = false,
     showExactTimestamp: Boolean = false,
-    primaryButtonLabel: String = "Play Course",
+    primaryButtonLabel: String = "Play Video",
     onOpenCourse: () -> Unit,
     onToggleSave: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val categoryLabel = remember(course.category) { CourseCategories.normalize(course.category) }
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -221,9 +337,9 @@ fun CourseCard(
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
             ) {
-                CourseThumbnailImage(
-                    thumbnailUrl = course.thumbnailUrl,
-                    category = course.category,
+                VideoPreviewImage(
+                    videoUrl = course.videoUrl,
+                    previewImageUrl = course.thumbnailUrl,
                     contentDescription = course.title,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -234,7 +350,7 @@ fun CourseCard(
                             Brush.verticalGradient(
                                 listOf(
                                     Color.Black.copy(alpha = 0.08f),
-                                    Color.Black.copy(alpha = 0.58f)
+                                    Color.Black.copy(alpha = 0.54f)
                                 )
                             )
                         )
@@ -254,7 +370,7 @@ fun CourseCard(
                             shape = RoundedCornerShape(50)
                         ) {
                             Text(
-                                text = course.category,
+                                text = categoryLabel,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.White,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
@@ -288,7 +404,7 @@ fun CourseCard(
                             ) {
                                 Icon(
                                     imageVector = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
-                                    contentDescription = if (isSaved) "Remove from saved" else "Save course",
+                                    contentDescription = if (isSaved) "Remove from saved" else "Save video",
                                     tint = if (isSaved) Color(0xFF93C5FD) else Color.White
                                 )
                             }
@@ -303,14 +419,14 @@ fun CourseCard(
                     shadowElevation = 6.dp,
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .size(52.dp)
+                        .size(54.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Filled.PlayArrow,
                             contentDescription = "Play ${course.title}",
                             tint = CobaltPrimary,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
                 }
@@ -324,9 +440,20 @@ fun CourseCard(
                     text = course.title,
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+
+                if (course.description.isNotBlank()) {
+                    Text(
+                        text = course.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -364,6 +491,46 @@ fun CourseCard(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Visibility,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = "${course.totalViews} views",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (likeCount != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Favorite,
+                                contentDescription = null,
+                                tint = LikeRose,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "$likeCount likes",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 

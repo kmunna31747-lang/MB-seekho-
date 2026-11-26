@@ -34,23 +34,45 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // -------------------------------------------------------------------
-    // 1. PRIVATE ACCESS CODES — strictly owner admin only (Cloud Functions
-    //    using Admin SDK bypass rules during atomic code redemption).
-    // -------------------------------------------------------------------
-    match /accessCodes/{codeId} {
-      allow read: if isAdmin();
-      allow write: if false; // Mutated exclusively via trusted Cloud Functions & Admin SDK
+    function isValidCourseCategory(cat) {
+      return cat in [
+        'Facebook Course',
+        'YouTube Course',
+        'Social Media Course',
+        'Snapchat Course',
+        'Earning App Course',
+        'Earning Website Course',
+        'Other Course'
+      ];
     }
 
     // -------------------------------------------------------------------
-    // 2. USERS — users can read/update only their own non-privileged profile
-    //    fields; role, codeId, active, and createdAt are immutable by clients.
+    // 1. ACCESS CODES (STUDENT & TEACHER) — strictly Owner Admin read-only.
+    //    Documents are keyed by SHA-256 codeHash (or legacy codeId) so O(1)
+    //    atomic single-use lookups scale to 10,000 / 50,000 / 100,000+ codes
+    //    with global duplicate prevention. Raw codes are NEVER stored here
+    //    or exposed to clients; all mutations occur via Cloud Functions.
+    // -------------------------------------------------------------------
+    match /accessCodes/{codeKey} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Unlimited batch import & generation audit trail (Admin read-only)
+    match /codeBatches/{batchId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // -------------------------------------------------------------------
+    // 2. USERS — both Student and Teacher accounts are created strictly by
+    //    Cloud Functions upon atomic validation of an Unused Access Code.
+    //    Users may update only their own display name and photoUrl.
     // -------------------------------------------------------------------
     match /users/{uid} {
       allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
       allow list: if isAdmin();
-      allow create: if false; // Created strictly by Cloud Function upon valid code redemption
+      allow create: if false;
 
       allow update: if isSignedIn() && request.auth.uid == uid &&
         request.resource.data.uid == resource.data.uid &&
@@ -70,18 +92,19 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------
-    // 3. COURSES — published courses readable by authenticated active users;
-    //    only verified active teachers can create/edit/delete their OWN courses;
-    //    owner admin can moderate/delete any inappropriate course.
+    // 3. COURSES / VIDEOS — 7 official course categories, video-only upload
+    //    with optional auto-extracted preview; totalViews immutable by clients.
     // -------------------------------------------------------------------
     function isValidCourse(data) {
       return data.courseId is string && isValidId(data.courseId) &&
         data.title is string && data.title.size() >= 3 && data.title.size() <= 120 &&
         data.description is string && data.description.size() >= 5 && data.description.size() <= 1000 &&
-        data.category is string && data.category.size() >= 2 && data.category.size() <= 50 &&
+        data.category is string && isValidCourseCategory(data.category) &&
         data.videoUrl is string && data.videoUrl.size() >= 10 && data.videoUrl.size() <= 2048 &&
         (!('thumbnailUrl' in data) || data.thumbnailUrl == null ||
           (data.thumbnailUrl is string && data.thumbnailUrl.size() <= 2048)) &&
+        (!('videoType' in data) || data.videoType in ['short', 'long']) &&
+        (!('durationMs' in data) || (data.durationMs is int && data.durationMs >= 0)) &&
         data.teacherId is string &&
         data.teacherName is string && data.teacherName.size() >= 2 && data.teacherName.size() <= 60 &&
         data.published is bool &&
@@ -111,18 +134,24 @@ service cloud.firestore {
         ]) &&
         request.resource.data.keys().hasOnly([
           'courseId', 'title', 'description', 'category', 'thumbnailUrl', 'videoUrl',
-          'teacherId', 'teacherName', 'createdAt', 'published', 'totalViews'
+          'teacherId', 'teacherName', 'createdAt', 'published', 'totalViews',
+          'videoType', 'durationMs'
         ]);
 
-      allow update: if isValidId(courseId) && isTeacher() && isActiveUser() &&
-        resource.data.teacherId == request.auth.uid &&
-        isValidCourse(request.resource.data) &&
-        request.resource.data.courseId == resource.data.courseId &&
-        request.resource.data.teacherId == resource.data.teacherId &&
-        request.resource.data.createdAt == resource.data.createdAt &&
-        request.resource.data.totalViews == resource.data.totalViews &&
-        request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['title', 'description', 'category', 'thumbnailUrl', 'published']);
+      allow update: if isValidId(courseId) && (
+        (isAdmin() &&
+          isValidCourse(request.resource.data) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['category', 'published'])) ||
+        (isTeacher() && isActiveUser() &&
+          resource.data.teacherId == request.auth.uid &&
+          isValidCourse(request.resource.data) &&
+          request.resource.data.courseId == resource.data.courseId &&
+          request.resource.data.teacherId == resource.data.teacherId &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.totalViews == resource.data.totalViews &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['title', 'description', 'category', 'published']))
+      );
 
       allow delete: if isValidId(courseId) && (
         isAdmin() ||
@@ -131,15 +160,92 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------
-    // 4. PAYMENTS — strictly private to Owner Admin
+    // 4. VALIDATED VIDEO VIEWS — strictly written by recordValidVideoView
+    //    Cloud Function so teachers cannot inflate view counts.
     // -------------------------------------------------------------------
-    match /payments/{paymentId} {
-      allow read: if isAdmin();
-      allow write: if false; // Mutated via trusted Admin Cloud Functions only
+    match /videoViews/{viewId} {
+      allow read: if isAdmin() ||
+        (isTeacher() && isActiveUser() && resource.data.teacherId == request.auth.uid);
+      allow write: if false;
     }
 
     // -------------------------------------------------------------------
-    // 5. SAVED COURSES — scoped per student UID
+    // 5. TEACHER COINS & COIN TRANSACTIONS — strictly server-maintained.
+    //    Readable only by owning Teacher (for Teacher Studio) or Admin.
+    //    Students can NEVER read or write teacher coins.
+    // -------------------------------------------------------------------
+    match /teacherCoins/{teacherId} {
+      allow get: if isAdmin() || (isTeacher() && isActiveUser() && request.auth.uid == teacherId);
+      allow list: if isAdmin();
+      allow write: if false;
+    }
+
+    match /coinTransactions/{transactionId} {
+      allow read: if isAdmin() ||
+        (isTeacher() && isActiveUser() && resource.data.teacherId == request.auth.uid);
+      allow write: if false;
+    }
+
+    // -------------------------------------------------------------------
+    // 6. VIDEO LIKES — deterministic docId `${videoId}_${studentId}` enforces
+    //    exactly one active like per user per video.
+    // -------------------------------------------------------------------
+    match /videoLikes/{likeId} {
+      allow read: if isActiveUser() || isAdmin();
+      allow create: if isActiveUser() &&
+        likeId == request.resource.data.videoId + '_' + request.auth.uid &&
+        request.resource.data.studentId == request.auth.uid &&
+        request.resource.data.videoId is string && isValidId(request.resource.data.videoId) &&
+        exists(/databases/$(database)/documents/courses/$(request.resource.data.videoId)) &&
+        get(/databases/$(database)/documents/courses/$(request.resource.data.videoId)).data.published == true &&
+        request.resource.data.createdAt is timestamp && request.resource.data.createdAt <= request.time &&
+        request.resource.data.keys().hasOnly(['videoId', 'studentId', 'createdAt']);
+      allow update: if false;
+      allow delete: if isAdmin() || (isActiveUser() && resource.data.studentId == request.auth.uid);
+    }
+
+    // -------------------------------------------------------------------
+    // 7. VIDEO COMMENTS — newest-first student comments with role-based
+    //    moderation (student deletes own, teacher moderates own video, admin any).
+    // -------------------------------------------------------------------
+    match /videoComments/{commentId} {
+      allow read: if isActiveUser() || isAdmin();
+      allow create: if isActiveUser() &&
+        isValidId(commentId) &&
+        request.resource.data.commentId == commentId &&
+        request.resource.data.studentId == request.auth.uid &&
+        request.resource.data.videoId is string && isValidId(request.resource.data.videoId) &&
+        exists(/databases/$(database)/documents/courses/$(request.resource.data.videoId)) &&
+        get(/databases/$(database)/documents/courses/$(request.resource.data.videoId)).data.published == true &&
+        request.resource.data.studentName is string &&
+        request.resource.data.studentName.size() >= 2 && request.resource.data.studentName.size() <= 60 &&
+        (!('studentPhoto' in request.resource.data) ||
+          request.resource.data.studentPhoto == null ||
+          (request.resource.data.studentPhoto is string && request.resource.data.studentPhoto.size() <= 1024)) &&
+        request.resource.data.commentText is string &&
+        request.resource.data.commentText.size() >= 2 && request.resource.data.commentText.size() <= 500 &&
+        request.resource.data.createdAt is timestamp && request.resource.data.createdAt <= request.time &&
+        request.resource.data.keys().hasOnly([
+          'commentId', 'videoId', 'studentId', 'studentName', 'studentPhoto', 'commentText', 'createdAt'
+        ]);
+      allow update: if false;
+      allow delete: if isAdmin() ||
+        (isActiveUser() && resource.data.studentId == request.auth.uid) ||
+        (isTeacher() && isActiveUser() &&
+          exists(/databases/$(database)/documents/courses/$(resource.data.videoId)) &&
+          get(/databases/$(database)/documents/courses/$(resource.data.videoId)).data.teacherId == request.auth.uid);
+    }
+
+    // -------------------------------------------------------------------
+    // 8. PAYMENTS — strictly private to Owner Admin
+    // -------------------------------------------------------------------
+    match /payments/{paymentId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // -------------------------------------------------------------------
+    // 9. SAVED COURSES — scoped per student UID
     // -------------------------------------------------------------------
     match /savedCourses/{docId} {
       allow get, list: if isStudent() && isActiveUser() && resource.data.uid == request.auth.uid;
@@ -152,7 +258,7 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------
-    // 6. COURSE PROGRESS — scoped per student UID
+    // 10. COURSE PROGRESS — scoped per student UID
     // -------------------------------------------------------------------
     match /courseProgress/{docId} {
       allow get, list: if isStudent() && isActiveUser() && resource.data.uid == request.auth.uid;

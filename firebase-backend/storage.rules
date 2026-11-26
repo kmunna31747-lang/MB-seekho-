@@ -25,8 +25,8 @@ service firebase.storage {
       allow delete: if isAdmin() || (isTeacher() && request.auth.uid == teacherId);
     }
 
-    // Course thumbnails: only verified teachers can upload images under their own prefix (max 10 MB)
-    match /courses/{teacherId}/{courseId}/thumbnail/{fileName} {
+    // Auto-extracted video preview frame (no separate manual thumbnail upload field in UI)
+    match /courses/{teacherId}/{courseId}/preview/{fileName} {
       allow read: if isSignedIn();
       allow write: if isTeacher() &&
         request.auth.uid == teacherId &&

@@ -227,14 +227,14 @@ fun RoleSelectionScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Sign in with your private MB Seekho access code issued by the platform owner.",
+                        text = "Sign in with your unique MB Seekho Access Code to activate your Student or Teacher account.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     RoleActionCard(
                         title = stringResource(R.string.role_student),
-                        subtitle = "Watch HD video lessons, explore new courses, and track your learning library.",
+                        subtitle = "Activate with a valid Student Access Code to browse all 7 course categories, watch HD lessons, like & comment.",
                         icon = Icons.Rounded.AutoStories,
                         gradientColors = listOf(CobaltDark, CobaltPrimary),
                         testTag = "student_role_button",
@@ -243,7 +243,7 @@ fun RoleSelectionScreen(
 
                     RoleActionCard(
                         title = stringResource(R.string.role_teacher),
-                        subtitle = "Upload course videos from your phone, manage lessons, and publish to students.",
+                        subtitle = "Upload videos by category, earn coins from valid views, and track 28-day Teacher Studio analytics.",
                         icon = Icons.Rounded.CastForEducation,
                         gradientColors = listOf(RoyalPurple, VioletBright),
                         testTag = "teacher_role_button",
@@ -271,7 +271,7 @@ fun RoleSelectionScreen(
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = "Private access platform. Contact the MB Seekho owner to purchase a verified Student or Teacher access code.",
+                        text = "Both Student and Teacher portals use unique, single-use SHA-256 verified Access Codes managed securely on the backend.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
